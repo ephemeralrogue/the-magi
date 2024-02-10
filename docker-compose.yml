@@ -1,0 +1,285 @@
+version: "3.8"
+
+volumes:
+  ritsuko_vol:
+    driver: local
+  melchior_vol:
+    driver: local
+  caspar_vol:
+    driver: local
+  balthasar_vol:
+    driver: local
+  kibanadata:
+    driver: local
+  metricbeatdata:
+    driver: local
+  # filebeatdata01:
+  #  driver: local
+  # logstashdata01:
+  #  driver: local
+
+networks:
+  default:
+    name: ${NETWORK_NAME}
+    external: false
+
+services:
+  ritsuko:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    volumes:
+      - ritsuko_vol:/usr/share/elasticsearch/config/certs
+    user: "0"
+    command: >
+      bash -c '
+        if [ x${ELASTIC_PASSWORD} == x ]; then
+          echo "Set the ELASTIC_PASSWORD environment variable in the .env file";
+          exit 1;
+        elif [ x${KIBANA_PASSWORD} == x ]; then
+          echo "Set the KIBANA_PASSWORD environment variable in the .env file";
+          exit 1;
+        fi;
+        if [ ! -f config/certs/ca.zip ]; then
+          echo "Creating CA";
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          echo "Creating certs";
+          echo -ne \
+          "instances:\n"\
+          "  - name: melchior\n"\
+          "    dns:\n"\
+          "      - melchior\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: caspar\n"\
+          "    dns:\n"\
+          "      - caspar\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: balthasar\n"\
+          "    dns:\n"\
+          "      - balthasar\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          "  - name: kibana\n"\
+          "    dns:\n"\
+          "      - kibana\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
+          > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        echo "Setting file permissions"
+        chown -R root:root config/certs;
+        find . -type d -exec chmod 750 \{\} \;;
+        find . -type f -exec chmod 640 \{\} \;;
+        echo "Waiting for Elasticsearch availability";
+        until curl -s --cacert config/certs/ca/ca.crt https://melchior:9200 | grep -q "missing authentication credentials"; do sleep 30; done;
+        echo "Setting kibana_system password";
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://melchior:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
+        echo "All done!";
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/melchior/melchior.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+  
+  melchior:
+    depends_on:
+      ritsuko:
+        condition: service_healthy
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    labels:
+      co.elastic.logs/module: elasticsearch
+      co.elastic.metrics/module: elasticsearch
+    volumes:
+      - ritsuko_vol:/usr/share/elasticsearch/config/certs
+      - melchior_vol:/usr/share/elasticsearch/data
+    ports:
+      - ${ES_PORT}:9200
+    environment:
+      - node.name=melchior
+      - cluster.name=${CLUSTER_NAME}
+      - cluster.initial_master_nodes=melchior,caspar,balthasar
+      - discovery.seed_hosts=caspar,balthasar
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/melchior/melchior.key
+      - xpack.security.http.ssl.certificate=certs/melchior/melchior.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/melchior/melchior.key
+      - xpack.security.transport.ssl.certificate=certs/melchior/melchior.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE}
+    mem_limit: ${ES_MEM_LIMIT}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+  
+  caspar:
+    depends_on:
+      - melchior
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    labels:
+      co.elastic.logs/module: elasticsearch
+      co.elastic.metrics/module: elasticsearch
+    volumes:
+      - ritsuko_vol:/usr/share/elasticsearch/config/certs
+      - caspar_vol:/usr/share/elasticsearch/data
+    environment:
+      - node.name=caspar
+      - cluster.name=${CLUSTER_NAME}
+      - cluster.initial_master_nodes=melchior,caspar,balthasar
+      - discovery.seed_hosts=melchior,balthasar
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/caspar/caspar.key
+      - xpack.security.http.ssl.certificate=certs/caspar/caspar.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/caspar/caspar.key
+      - xpack.security.transport.ssl.certificate=certs/caspar/caspar.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE}
+    mem_limit: ${ES_MEM_LIMIT}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+  
+  balthasar:
+    depends_on:
+      - caspar
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    labels:
+      co.elastic.logs/module: elasticsearch
+      co.elastic.metrics/module: elasticsearch
+    volumes:
+      - ritsuko_vol:/usr/share/elasticsearch/config/certs
+      - balthasar_vol:/usr/share/elasticsearch/data
+    environment:
+      - node.name=balthasar
+      - cluster.name=${CLUSTER_NAME}
+      - cluster.initial_master_nodes=melchior,caspar,balthasar
+      - discovery.seed_hosts=melchior,caspar
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/balthasar/balthasar.key
+      - xpack.security.http.ssl.certificate=certs/balthasar/balthasar.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/balthasar/balthasar.key
+      - xpack.security.transport.ssl.certificate=certs/balthasar/balthasar.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE}
+    mem_limit: ${ES_MEM_LIMIT}
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  kibana:
+    depends_on:
+      melchior:
+        condition: service_healthy
+      caspar:
+        condition: service_healthy
+      balthasar:
+        condition: service_healthy
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    labels:
+      co.elastic.logs/module: kibana
+    volumes:
+      - ritsuko_vol:/usr/share/kibana/config/certs
+      - kibanadata:/usr/share/kibana/data
+    ports:
+      - ${KIBANA_PORT}:5601
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=https://melchior:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      - XPACK_SECURITY_ENCRYPTIONKEY=${ENCRYPTION_KEY}
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${ENCRYPTION_KEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${ENCRYPTION_KEY}
+    mem_limit: ${KB_MEM_LIMIT}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+
+  metricbeat:
+    depends_on:
+      melchior:
+        condition: service_healthy
+      caspar:
+        condition: service_healthy
+      balthasar:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    build:
+      dockerfile: ${DOCKERFILE:-Dockerfile.metricbeat}
+    volumes:
+      - ritsuko_vol:/usr/share/metricbeat/certs
+      - metricbeatdata:/usr/share/metricbeat/data
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro"
+      - "/proc:/hostfs/proc:ro"
+      - "/:/hostfs:ro"
+    environment:
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTIC_HOSTS=melchior:9200
+      - KIBANA_HOSTS=http://kibana:5601
