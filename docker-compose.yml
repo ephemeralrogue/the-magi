@@ -1,5 +1,8 @@
 version: "3.8"
 
+# run at start:
+# sudo sysctl -w vm.max_map_count=262144
+
 volumes:
   ritsuko_vol:
     driver: local
@@ -274,12 +277,12 @@ services:
     volumes:
       - ritsuko_vol:/usr/share/metricbeat/certs
       - metricbeatdata:/usr/share/metricbeat/data
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      - "/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro"
-      - "/proc:/hostfs/proc:ro"
-      - "/:/hostfs:ro"
+    #  - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    #  - "/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro"
+    #  - "/proc:/hostfs/proc:ro"
+    #  - "/:/hostfs:ro"
     environment:
       - ELASTIC_USER=elastic
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-      - ELASTIC_HOSTS=melchior:9200
+      - ELASTIC_HOSTS=https://melchior:9200
       - KIBANA_HOSTS=http://kibana:5601
