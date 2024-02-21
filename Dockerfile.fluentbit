@@ -1,0 +1,5 @@
+# dummyplug is the operating alias for fluentbit
+
+FROM fluent/fluent-bit:2.2.2
+# COPY --chown=root:fluentbit fluent-bit.yml /fluent-bit/etc/fluent-bit.yml
+COPY --chown=root:fluentbit fluent-bit.conf /fluent-bit/etc/fluent-bit.conf

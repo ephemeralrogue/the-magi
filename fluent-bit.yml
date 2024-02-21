@@ -1,0 +1,31 @@
+service:
+  flush: 5
+  log_level: info
+#  http_server: on
+#  http_listen: 0.0.0.0
+#  http_port: 2020
+
+pipeline:
+  inputs:
+#    name: docker
+#    tag: nerv
+
+#    name: elasticsearch
+#    tag: magi
+
+#    name: fluentbit_metrics
+#    tag: fluentbit
+
+    name: forward
+    listen: 0.0.0.0
+    port: 24224
+
+  outputs:
+#    name: es
+#    match: *
+#    host: ${ELASTIC_HOSTS}
+#    port: 
+#    replace_dots: on
+
+    name: stdout
+    match: *

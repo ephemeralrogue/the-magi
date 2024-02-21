@@ -4,21 +4,21 @@ version: "3.8"
 # sudo sysctl -w vm.max_map_count=262144
 
 volumes:
-  ritsuko_vol:
+  ritsuko_:
     driver: local
-  melchior_vol:
+  melchior_:
     driver: local
-  caspar_vol:
+  caspar_:
     driver: local
-  balthasar_vol:
+  balthasar_:
     driver: local
-  kibanadata:
+  kibana_:
     driver: local
-  metricbeatdata:
+  metricbeat_:
+    driver: local
+  fluentbit_:
     driver: local
   # filebeatdata01:
-  #  driver: local
-  # logstashdata01:
   #  driver: local
 
 networks:
@@ -29,8 +29,9 @@ networks:
 services:
   ritsuko:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: ritsuko
     volumes:
-      - ritsuko_vol:/usr/share/elasticsearch/config/certs
+      - ritsuko_:/usr/share/elasticsearch/config/certs
     user: "0"
     command: >
       bash -c '
@@ -50,6 +51,12 @@ services:
           echo "Creating certs";
           echo -ne \
           "instances:\n"\
+          "  - name: fluentbit\n"\
+          "    dns:\n"\
+          "      - fluentbit\n"\
+          "      - localhost\n"\
+          "    ip:\n"\
+          "      - 127.0.0.1\n"\
           "  - name: melchior\n"\
           "    dns:\n"\
           "      - melchior\n"\
@@ -99,12 +106,13 @@ services:
       ritsuko:
         condition: service_healthy
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: melchior
     labels:
       co.elastic.logs/module: elasticsearch
       co.elastic.metrics/module: elasticsearch
     volumes:
-      - ritsuko_vol:/usr/share/elasticsearch/config/certs
-      - melchior_vol:/usr/share/elasticsearch/data
+      - ritsuko_:/usr/share/elasticsearch/config/certs
+      - melchior_:/usr/share/elasticsearch/data
     ports:
       - ${ES_PORT}:9200
     environment:
@@ -144,12 +152,13 @@ services:
     depends_on:
       - melchior
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: caspar
     labels:
       co.elastic.logs/module: elasticsearch
       co.elastic.metrics/module: elasticsearch
     volumes:
-      - ritsuko_vol:/usr/share/elasticsearch/config/certs
-      - caspar_vol:/usr/share/elasticsearch/data
+      - ritsuko_:/usr/share/elasticsearch/config/certs
+      - caspar_:/usr/share/elasticsearch/data
     environment:
       - node.name=caspar
       - cluster.name=${CLUSTER_NAME}
@@ -187,12 +196,13 @@ services:
     depends_on:
       - caspar
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: balthasar
     labels:
       co.elastic.logs/module: elasticsearch
       co.elastic.metrics/module: elasticsearch
     volumes:
-      - ritsuko_vol:/usr/share/elasticsearch/config/certs
-      - balthasar_vol:/usr/share/elasticsearch/data
+      - ritsuko_:/usr/share/elasticsearch/config/certs
+      - balthasar_:/usr/share/elasticsearch/data
     environment:
       - node.name=balthasar
       - cluster.name=${CLUSTER_NAME}
@@ -235,11 +245,12 @@ services:
       balthasar:
         condition: service_healthy
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    container_name: kibana
     labels:
       co.elastic.logs/module: kibana
     volumes:
-      - ritsuko_vol:/usr/share/kibana/config/certs
-      - kibanadata:/usr/share/kibana/data
+      - ritsuko_:/usr/share/kibana/config/certs
+      - kibana_:/usr/share/kibana/data
     ports:
       - ${KIBANA_PORT}:5601
     environment:
@@ -274,15 +285,47 @@ services:
         condition: service_healthy
     build:
       dockerfile: ${DOCKERFILE:-Dockerfile.metricbeat}
+    container_name: metricbeat
     volumes:
-      - ritsuko_vol:/usr/share/metricbeat/certs
-      - metricbeatdata:/usr/share/metricbeat/data
-    #  - "/var/run/docker.sock:/var/run/docker.sock:ro"
-    #  - "/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro"
-    #  - "/proc:/hostfs/proc:ro"
-    #  - "/:/hostfs:ro"
+      - ritsuko_:/usr/share/metricbeat/certs
+      - metricbeat_:/usr/share/metricbeat/data
+#      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+#      - "/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro"
+#      - "/proc:/hostfs/proc:ro"
+#      - "/:/hostfs:ro"
     environment:
       - ELASTIC_USER=elastic
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - ELASTIC_HOSTS=https://melchior:9200
       - KIBANA_HOSTS=http://kibana:5601
+  
+  fluentbit:
+    depends_on:
+      - melchior
+      - caspar
+      - balthasar
+    build:
+      dockerfile: ${DOCKERFILE:-Dockerfile.fluentbit}
+    container_name: fluentbit
+    volumes:
+      - ritsuko_:/usr/share/fluentbit/certs
+      - fluentbit_:/usr/share/fluentbit/data
+    ports:
+      - ${FLUENT_BIT_INGEST}:24224
+      - ${FLUENT_BIT_INGEST}:24224/udp
+      - ${FLUENT_BIT_SERVER}:2020
+    environment:
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTIC_HOSTS=elasticsearch
+      - ELASTIC_PORT=${ES_PORT}
+      - KIBANA_HOSTS=http://kibana:5601
+#    healthcheck:
+#      test:
+#        [
+#          "CMD-SHELL",
+#          "curl -s -I http://localhost:2020 | grep -q 'HTTP/1.1 302 Found'",
+#        ]
+#      interval: 10s
+#      timeout: 10s
+#      retries: 120
