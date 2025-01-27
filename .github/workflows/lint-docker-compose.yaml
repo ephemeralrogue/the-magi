@@ -1,0 +1,16 @@
+name: Lint Docker Compose
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  linter:
+    runs-on: ubuntu-latest
+    container:
+      image: zavoloklom/dclint:alpine
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Run DCLint
+        run: /bin/dclint . -r -f codeclimate -o gl-codequality.json
