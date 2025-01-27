@@ -6,6 +6,7 @@ on:
 
 jobs:
   linter:
+    name: Lint Docker Compose
     runs-on: ubuntu-latest
     container:
       image: zavoloklom/dclint:alpine
