@@ -1,31 +1,9 @@
-version: "3.8"
-
-volumes:
-  ritsuko_vol:
-    driver: local
-  melchior_vol:
-    driver: local
-  caspar_vol:
-    driver: local
-  balthasar_vol:
-    driver: local
-  kibanadata:
-    driver: local
-  # metricbeatdata:
-  #  driver: local
-  # filebeatdata01:
-  #  driver: local
-  # logstashdata01:
-  #  driver: local
-
-networks:
-  default:
-    name: ${NETWORK_NAME}
-    external: false
+name: The Magi
 
 services:
   ritsuko:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: ritsuko
     volumes:
       # KICS-scan ignore-block
       - type: volume
@@ -33,11 +11,6 @@ services:
         target: /usr/share/elasticsearch/config/certs
         volume:
           nocopy: true
-    user: "0"
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     command: >
       bash -c '
         if [ x${ELASTIC_PASSWORD} == x ]; then
@@ -94,6 +67,14 @@ services:
         until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://melchior:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 10; done;
         echo "All done!";
       '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/melchior/melchior.crt ]"]
+      interval: 1s
+      timeout: 5s
+      retries: 120
+    user: "0"
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
@@ -101,24 +82,15 @@ services:
           cpus: ${ES_CPU_LIMIT}
         reservations:
           memory: 256M
-    healthcheck:
-      test: ["CMD-SHELL", "[ -f config/certs/melchior/melchior.crt ]"]
-      interval: 1s
-      timeout: 5s
-      retries: 120
-  
+    security_opt:
+      - no-new-privileges:true
+
   melchior:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: melchior
     depends_on:
       ritsuko:
         condition: service_healthy
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
-    labels:
-      co.elastic.logs/module: elasticsearch
-      co.elastic.metrics/module: elasticsearch
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     volumes:
       # KICS-scan ignore-block
       - type: volume
@@ -127,8 +99,6 @@ services:
       - type: volume
         source: melchior_vol
         target: /usr/share/elasticsearch/data
-    ports:
-      - '127.0.0.1:${ES_PORT}:${ES_PORT}'
     environment:
       - node.name=melchior
       - cluster.name=${CLUSTER_NAME}
@@ -147,17 +117,8 @@ services:
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
-    deploy:
-      resources:
-        limits:
-          memory: ${ES_MEM_LIMIT}
-          cpus: ${ES_CPU_LIMIT}
-        reservations:
-          memory: 256M
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
+    ports:
+      - '127.0.0.1:${ES_PORT}:${ES_PORT}'
     healthcheck:
       test:
         [
@@ -167,19 +128,31 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-  
-  caspar:
-    depends_on:
-      melchior:
-        condition: service_started
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
     labels:
       co.elastic.logs/module: elasticsearch
       co.elastic.metrics/module: elasticsearch
     cap_drop:
-     - ALL
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEM_LIMIT}
+          cpus: ${ES_CPU_LIMIT}
+        reservations:
+          memory: 256M
     security_opt:
       - no-new-privileges:true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+  
+  caspar:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: caspar
+    depends_on:
+      melchior:
+        condition: service_started
     volumes:
       # KICS-scan ignore-block
       - type: volume
@@ -206,17 +179,6 @@ services:
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
-    deploy:
-      resources:
-        limits:
-          memory: ${ES_MEM_LIMIT}
-          cpus: ${ES_CPU_LIMIT}
-        reservations:
-          memory: 256M
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
     healthcheck:
       test:
         [
@@ -226,21 +188,33 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
-  
+    labels:
+      co.elastic.logs/module: elasticsearch
+      co.elastic.metrics/module: elasticsearch
+    cap_drop:
+     - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEM_LIMIT}
+          cpus: ${ES_CPU_LIMIT}
+        reservations:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
   balthasar:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    container_name: balthasar
     depends_on:
       melchior:
         condition: service_started
       caspar:
         condition: service_started
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
-    labels:
-      co.elastic.logs/module: elasticsearch
-      co.elastic.metrics/module: elasticsearch
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     volumes:
       # KICS-scan ignore-block
       - type: volume
@@ -267,17 +241,6 @@ services:
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE}
-    deploy:
-      resources:
-        limits:
-          memory: ${ES_MEM_LIMIT}
-          cpus: ${ES_CPU_LIMIT}
-        reservations:
-          memory: 256M
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
     healthcheck:
       test:
         [
@@ -287,8 +250,29 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
+    labels:
+      co.elastic.logs/module: elasticsearch
+      co.elastic.metrics/module: elasticsearch
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${ES_MEM_LIMIT}
+          cpus: ${ES_CPU_LIMIT}
+        reservations:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    
 
   kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
+    container_name: kibana
     depends_on:
       melchior:
         condition: service_healthy
@@ -296,13 +280,6 @@ services:
         condition: service_healthy
       balthasar:
         condition: service_healthy
-    image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
-    labels:
-      co.elastic.logs/module: kibana
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
     volumes:
       # KICS-scan ignore-block
       - type: volume
@@ -311,8 +288,6 @@ services:
       - type: volume
         source: kibanadata
         target: /usr/share/kibana/data
-    ports:
-      - '127.0.0.1:${KIBANA_PORT}:${KIBANA_PORT}'
     environment:
       - SERVERNAME=kibana
       - ELASTICSEARCH_HOSTS=https://melchior:9200
@@ -322,13 +297,8 @@ services:
       - XPACK_SECURITY_ENCRYPTIONKEY=${ENCRYPTION_KEY}
       - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${ENCRYPTION_KEY}
       - XPACK_REPORTING_ENCRYPTIONKEY=${ENCRYPTION_KEY}
-    deploy:
-      resources:
-        limits:
-          memory: ${KB_MEM_LIMIT}
-          cpus: ${KB_CPU_LIMIT}
-        reservations:
-          memory: 256M
+    ports:
+      - '127.0.0.1:${KIBANA_PORT}:${KIBANA_PORT}'
     healthcheck:
       test:
         [
@@ -338,6 +308,19 @@ services:
       interval: 10s
       timeout: 10s
       retries: 120
+    labels:
+      co.elastic.logs/module: kibana
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${KB_MEM_LIMIT}
+          cpus: ${KB_CPU_LIMIT}
+        reservations:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
 
 #  metricbeat:
 #    depends_on:
@@ -372,3 +355,26 @@ services:
 #          cpus: ${LS_CPU_LIMIT}
 #        reservations:
 #          memory: 256M
+
+networks:
+  default:
+    name: ${NETWORK_NAME}
+    external: false
+
+volumes:
+  ritsuko_vol:
+    driver: local
+  melchior_vol:
+    driver: local
+  caspar_vol:
+    driver: local
+  balthasar_vol:
+    driver: local
+  kibanadata:
+    driver: local
+  # metricbeatdata:
+  #  driver: local
+  # filebeatdata01:
+  #  driver: local
+  # logstashdata01:
+  #  driver: local

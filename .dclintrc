@@ -1,0 +1,14 @@
+{
+    "rules": {
+        "services-alphabetical-order": 0,
+        "service-dependencies-alphabetical-order": 0,
+        "require-quotes-in-ports": [
+            2,
+            {
+                "quoteType": "single"
+            }
+        ]
+    },
+    "quiet": false,
+    "debug": true
+}
