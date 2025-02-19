@@ -73,8 +73,7 @@ services:
       timeout: 5s
       retries: 120
     user: "0"
-    cap_drop:
-      - ALL
+    # KICS-scan ignore-block
     cap_add:
       - CHOWN
       - DAC_OVERRIDE
@@ -82,6 +81,8 @@ services:
       - SETFCAP
       - SETGID
       - SETUID
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
@@ -98,11 +99,11 @@ services:
     depends_on:
       ritsuko:
         condition: service_healthy
+    # KICS-scan ignore-block
     volumes:
       - type: volume
         source: melchior_vol
         target: /usr/share/elasticsearch/data
-      # KICS-scan ignore-block
       - type: volume
         source: ritsuko_vol
         target: /usr/share/elasticsearch/config/certs
@@ -227,6 +228,7 @@ services:
       caspar:
         condition: service_started
     volumes:
+      # KICS-scan ignore-block
       - type: volume
         source: balthasar_vol
         target: /usr/share/elasticsearch/data
@@ -337,6 +339,9 @@ services:
       - no-new-privileges:true
 
   metricbeat:
+    build:
+      dockerfile: ./Dockerfile.metricbeat
+    container_name: metricbeat
     depends_on:
       melchior:
         condition: service_healthy
@@ -346,48 +351,87 @@ services:
         condition: service_healthy
       kibana:
         condition: service_healthy
-    build:
-      dockerfile: ./Dockerfile.metricbeat
-    container_name: metricbeat
     volumes:
       - type: volume
         source: metricbeatdata
         target: /usr/share/metricbeat/data
-        # KICS-scan ignore-block
+      # KICS-scan ignore-block
       - type: volume
         source: ritsuko_vol
         target: /usr/share/metricbeat/certs
         volume:
           nocopy: true
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
-        read_only: true
-      - type: bind
-        source: /sys/fs/cgroup
-        target: /hostfs/sys/fs/cgroup
-        read_only: true
-      - type: bind
-        source: /proc
-        target: /hostfs/proc
-        read_only: true
-      - type: bind
-        source: /
-        target: /hostfs
-        read_only: true
-      - type: bind
-        source: /var/run/dbus/system_bus_socket
-        target: /hostfs/var/run/dbus/system_bus_socket
-        read_only: true
     environment:
-      - DBUS_SYSTEM_BUS_ADDRESS='unix:path=/hostfs/var/run/dbus/system_bus_socket'
       - ELASTIC_USER=elastic
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - ELASTIC_HOSTS=https://melchior:9200
       - KIBANA_HOSTS=http://kibana:5601
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -I http://localhost:9200 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    user: root
     cap_drop:
       - ALL
-    user: root
+    deploy:
+      resources:
+        limits:
+          memory: ${LS_MEM_LIMIT}
+          cpus: ${LS_CPU_LIMIT}
+        reservations:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
+
+  fluent-bit:
+    image: cr.fluentbit.io/fluent/fluent-bit:3.2.6
+    container_name: fluent-bit
+    depends_on:
+      melchior:
+        condition: service_healthy
+      caspar:
+        condition: service_healthy
+      balthasar:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ./fluent-bit.yaml
+        target: /fluent-bit/etc/fluent-bit.yaml
+      # KICS-scan ignore-block
+      - type: volume
+        source: ritsuko_vol
+        target: /usr/share/fluent-bit/certs
+        volume:
+          nocopy: true
+      - type: volume
+        source: fluentbitdata
+        target: /usr/share/fluent-bit/data
+    environment:
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTIC_HOSTS=127.0.0.1
+      - ELASTIC_PORT=${ES_PORT}
+      - KIBANA_HOSTS=http://kibana:5601
+    ports:
+      - '127.0.0.1:24224:24224'
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -I http://localhost:24224 | grep -q 'HTTP/1.1 302 Found'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 120
+    cap_drop:
+      - ALL
     deploy:
       resources:
         limits:
@@ -416,7 +460,5 @@ volumes:
     driver: local
   metricbeatdata:
     driver: local
-  # filebeatdata01:
-  #  driver: local
-  # logstashdata01:
-  #  driver: local
+  fluentbitdata:
+    driver: local

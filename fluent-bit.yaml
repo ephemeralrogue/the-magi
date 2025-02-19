@@ -1,0 +1,21 @@
+parsers:
+  - name: json
+    format: json
+    time_key: time
+    time_format: "%Y-%m-%dT%H:%M:%S.%LZ"
+
+pipeline:
+  inputs:
+    - name: random
+      parser: json
+  
+  outputs:
+    - name: elasticsearch
+      match: '*'
+      host: ${ELASTIC_HOST}
+      port: ${ELASTIC_PORT}
+      HTTP_User: ${ELASTIC_USER}
+      HTTP_Passwd: ${ELASTIC_PASSWORD}
+      Generate_ID: on
+      Trace_Output: on
+      Trace_Error: on

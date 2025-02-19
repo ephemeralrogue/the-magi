@@ -33,19 +33,19 @@ metricbeat.modules:
   xpack.enabled: true
 
 
-- module: docker
-  metricsets:
-   - "container"
-   - "cpu"
-   - "diskio"
-   - "healthcheck"
-   - "info"
-   #- "image"
-   - "memory"
-   - "network"
-  hosts: ["unix:///var/run/docker.sock"]
-  period: 10s
-  enabled: true
+#- module: docker
+#  metricsets:
+#   - "container"
+#   - "cpu"
+#   - "diskio"
+#   - "healthcheck"
+#   - "info"
+#   #- "image"
+#   - "memory"
+#   - "network"
+#  hosts: ["unix:///var/run/docker.sock"]
+#  period: 10s
+#  enabled: true
 
 
 processors:
