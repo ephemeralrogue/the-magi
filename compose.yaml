@@ -2,7 +2,7 @@ name: The Magi
 
 services:
   ritsuko:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    image: docker.elastic.co/elasticsearch/elasticsearch-wolfi:${STACK_VERSION}
     container_name: ritsuko
     volumes:
       # KICS-scan ignore-block
@@ -10,7 +10,7 @@ services:
         source: ritsuko_vol
         target: /usr/share/elasticsearch/config/certs
         volume:
-          nocopy: true
+          nocopy: false
     command: >
       bash -c '
         if [ x${ELASTIC_PASSWORD} == x ]; then
@@ -75,6 +75,13 @@ services:
     user: "0"
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETFCAP
+      - SETGID
+      - SETUID
     deploy:
       resources:
         limits:
@@ -86,19 +93,21 @@ services:
       - no-new-privileges:true
 
   melchior:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    image: docker.elastic.co/elasticsearch/elasticsearch-wolfi:${STACK_VERSION}
     container_name: melchior
     depends_on:
       ritsuko:
         condition: service_healthy
     volumes:
+      - type: volume
+        source: melchior_vol
+        target: /usr/share/elasticsearch/data
       # KICS-scan ignore-block
       - type: volume
         source: ritsuko_vol
         target: /usr/share/elasticsearch/config/certs
-      - type: volume
-        source: melchior_vol
-        target: /usr/share/elasticsearch/data
+        volume:
+          nocopy: true
     environment:
       - node.name=melchior
       - cluster.name=${CLUSTER_NAME}
@@ -148,19 +157,21 @@ services:
         hard: -1
   
   caspar:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    image: docker.elastic.co/elasticsearch/elasticsearch-wolfi:${STACK_VERSION}
     container_name: caspar
     depends_on:
       melchior:
         condition: service_started
     volumes:
+      - type: volume
+        source: caspar_vol
+        target: /usr/share/elasticsearch/data
       # KICS-scan ignore-block
       - type: volume
         source: ritsuko_vol
         target: /usr/share/elasticsearch/config/certs
-      - type: volume
-        source: caspar_vol
-        target: /usr/share/elasticsearch/data
+        volume:
+          nocopy: true
     environment:
       - node.name=caspar
       - cluster.name=${CLUSTER_NAME}
@@ -208,7 +219,7 @@ services:
         hard: -1
 
   balthasar:
-    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION}
+    image: docker.elastic.co/elasticsearch/elasticsearch-wolfi:${STACK_VERSION}
     container_name: balthasar
     depends_on:
       melchior:
@@ -216,13 +227,15 @@ services:
       caspar:
         condition: service_started
     volumes:
+      - type: volume
+        source: balthasar_vol
+        target: /usr/share/elasticsearch/data
       # KICS-scan ignore-block
       - type: volume
         source: ritsuko_vol
         target: /usr/share/elasticsearch/config/certs
-      - type: volume
-        source: balthasar_vol
-        target: /usr/share/elasticsearch/data
+        volume:
+          nocopy: true
     environment:
       - node.name=balthasar
       - cluster.name=${CLUSTER_NAME}
@@ -268,7 +281,6 @@ services:
       memlock:
         soft: -1
         hard: -1
-    
 
   kibana:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION}
@@ -281,13 +293,15 @@ services:
       balthasar:
         condition: service_healthy
     volumes:
+      - type: volume
+        source: kibanadata
+        target: /usr/share/kibana/data
       # KICS-scan ignore-block
       - type: volume
         source: ritsuko_vol
         target: /usr/share/kibana/config/certs
-      - type: volume
-        source: kibanadata
-        target: /usr/share/kibana/data
+        volume:
+          nocopy: true
     environment:
       - SERVERNAME=kibana
       - ELASTICSEARCH_HOSTS=https://melchior:9200
@@ -322,39 +336,67 @@ services:
     security_opt:
       - no-new-privileges:true
 
-#  metricbeat:
-#    depends_on:
-#      melchior:
-#        condition: service_healthy
-#      caspar:
-#        condition: service_healthy
-#      balthasar:
-#        condition: service_healthy
-#      kibana:
-#        condition: service_healthy
-#    build:
-#      dockerfile: ${DOCKERFILE:-Dockerfile.metricbeat}
-#    volumes:
-#      - ritsuko_vol:/usr/share/metricbeat/certs
-#      - type: volume
-#          source: metricbeatdata
-#          target: /usr/share/metricbeat/data
-#      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-#      - "/sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro"
-#      - "/proc:/hostfs/proc:ro"
-#      - "/:/hostfs:ro"
-#    environment:
-#      - ELASTIC_USER=elastic
-#      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
-#      - ELASTIC_HOSTS=melchior:9200
-#      - KIBANA_HOSTS=http://kibana:5601
-#    deploy:
-#      resources:
-#        limits:
-#          memory: ${LS_MEM_LIMIT}
-#          cpus: ${LS_CPU_LIMIT}
-#        reservations:
-#          memory: 256M
+  metricbeat:
+    depends_on:
+      melchior:
+        condition: service_healthy
+      caspar:
+        condition: service_healthy
+      balthasar:
+        condition: service_healthy
+      kibana:
+        condition: service_healthy
+    build:
+      dockerfile: ./Dockerfile.metricbeat
+    container_name: metricbeat
+    volumes:
+      - type: volume
+        source: metricbeatdata
+        target: /usr/share/metricbeat/data
+        # KICS-scan ignore-block
+      - type: volume
+        source: ritsuko_vol
+        target: /usr/share/metricbeat/certs
+        volume:
+          nocopy: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - type: bind
+        source: /sys/fs/cgroup
+        target: /hostfs/sys/fs/cgroup
+        read_only: true
+      - type: bind
+        source: /proc
+        target: /hostfs/proc
+        read_only: true
+      - type: bind
+        source: /
+        target: /hostfs
+        read_only: true
+      - type: bind
+        source: /var/run/dbus/system_bus_socket
+        target: /hostfs/var/run/dbus/system_bus_socket
+        read_only: true
+    environment:
+      - DBUS_SYSTEM_BUS_ADDRESS='unix:path=/hostfs/var/run/dbus/system_bus_socket'
+      - ELASTIC_USER=elastic
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ELASTIC_HOSTS=https://melchior:9200
+      - KIBANA_HOSTS=http://kibana:5601
+    cap_drop:
+      - ALL
+    user: root
+    deploy:
+      resources:
+        limits:
+          memory: ${LS_MEM_LIMIT}
+          cpus: ${LS_CPU_LIMIT}
+        reservations:
+          memory: 256M
+    security_opt:
+      - no-new-privileges:true
 
 networks:
   default:
@@ -372,8 +414,8 @@ volumes:
     driver: local
   kibanadata:
     driver: local
-  # metricbeatdata:
-  #  driver: local
+  metricbeatdata:
+    driver: local
   # filebeatdata01:
   #  driver: local
   # logstashdata01:
