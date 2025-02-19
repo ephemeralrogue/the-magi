@@ -1,2 +1,15 @@
-FROM docker.elastic.co/beats/metricbeat:8.12.1-arm64
-COPY --chown=root:metricbeat metricbeat.docker.yml /usr/share/metricbeat/metricbeat.yml
+FROM debian:bookworm-slim AS import
+
+USER root
+
+COPY --chown=root:metricbeat metricbeat.yml /usr/share/metricbeat/metricbeat.yml
+RUN chmod go-w /usr/share/metricbeat/metricbeat.yml
+
+FROM docker.elastic.co/beats/metricbeat:8.17.1-arm64 AS final
+
+USER root
+
+COPY --from=import /usr/share/metricbeat/metricbeat.yml /usr/share/metricbeat/metricbeat.yml
+
+
+
